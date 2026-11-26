@@ -14,12 +14,28 @@ export default function LoginScreen({ onLoggedIn }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [timer, setTimer] = useState(0);
+  const [pending, setPending] = useState(null); // { token, profile } waiting for "Yes, this is me"
 
   useEffect(() => {
     if (timer <= 0) return;
     const t = setTimeout(() => setTimer((s) => s - 1), 1000);
     return () => clearTimeout(t);
   }, [timer]);
+
+  // Direct login: registered number → show the rider's details → Continue.
+  // Falls back to OTP when the server has LOGIN_MODE = OTP.
+  const start = async () => {
+    setError('');
+    const p = normalizePhone(phone);
+    if (!p) return setError('Enter a valid 10-digit mobile number.');
+    setBusy(true);
+    const res = await call('loginByPhone', p);
+    setBusy(false);
+    if (!res.ok && res.code === 'OTP_REQUIRED') return send();
+    if (!res.ok) return setError(res.error);
+    setPending(res);
+    setStep('confirm');
+  };
 
   const send = async () => {
     setError('');
@@ -74,7 +90,28 @@ export default function LoginScreen({ onLoggedIn }) {
                 />
               </View>
               {error ? <Text style={styles.error}>{error}</Text> : null}
-              <Button label="Send OTP" onPress={send} busy={busy} disabled={phone.length !== 10} style={{ marginTop: 18 }} />
+              <Button label="Continue" onPress={start} busy={busy} disabled={phone.length !== 10} style={{ marginTop: 18 }} />
+            </>
+          ) : step === 'confirm' && pending ? (
+            <>
+              <Text style={styles.label}>REGISTERED RIDER</Text>
+              <Text style={styles.cfName}>{pending.profile.name || 'Rider'}</Text>
+              <Text style={styles.cfPhone}>{pending.profile.phone}</Text>
+              <View style={styles.cfRow}>
+                <Info label="CITY" value={pending.profile.city || pending.profile.scope?.city || pending.profile.scope?.fixed?.city} />
+                <Info label="DC" value={pending.profile.dc || pending.profile.scope?.dc || pending.profile.scope?.fixed?.dc} />
+              </View>
+              <Info label="CPC" value={pending.profile.cpc || 'Select after login'} highlight />
+              <Button
+                label="Yes, this is me — Continue"
+                onPress={() => onLoggedIn(pending.token, pending.profile)}
+                style={{ marginTop: 16 }}
+              />
+              <View style={[styles.otpActions, { justifyContent: 'center' }]}>
+                <Pressable onPress={() => { setPending(null); setPhone(''); setStep('phone'); }}>
+                  <Text style={styles.link}>Not you? Change number</Text>
+                </Pressable>
+              </View>
             </>
           ) : (
             <>
@@ -120,7 +157,22 @@ export default function LoginScreen({ onLoggedIn }) {
   );
 }
 
+function Info({ label, value, highlight }) {
+  return (
+    <View style={styles.info}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={[styles.infoValue, highlight && { color: COLORS.darkGreen }]} numberOfLines={1}>{value || '—'}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  cfName: { fontSize: 22, fontWeight: '800', color: COLORS.ink },
+  cfPhone: { fontSize: 14, color: COLORS.grey, marginTop: 2 },
+  cfRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  info: { flex: 1, borderWidth: 1, borderColor: COLORS.rule, borderRadius: 10, padding: 10, marginTop: 8 },
+  infoLabel: { fontSize: 10, fontWeight: '700', color: COLORS.grey, letterSpacing: 1 },
+  infoValue: { fontSize: 15, fontWeight: '800', color: COLORS.ink, marginTop: 4 },
   wrap: { flex: 1, backgroundColor: COLORS.ink },
   hero: { paddingHorizontal: 24, paddingTop: 48, paddingBottom: 28 },
   eyebrow: { color: COLORS.lime, fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
